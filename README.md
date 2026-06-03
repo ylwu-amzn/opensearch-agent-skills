@@ -10,7 +10,8 @@ Skills are organized in a tree — install the whole collection or pick individu
 
 | Category | Skill | Description |
 |----------|-------|-------------|
-| **Search** | [opensearch-launchpad](skills/opensearch-skills/search/opensearch-launchpad/) | Build search apps from scratch — BM25, semantic, hybrid, agentic search |
+| **Search** | [opensearch-launchpad](skills/opensearch-skills/search/opensearch-launchpad/) | Build search apps from scratch — BM25, semantic, hybrid, agentic search; LLM-powered query rewriting and grounded RAG |
+| **Ingestion** | [ml-inference-ingest](skills/opensearch-skills/ingestion/ml-inference-ingest/) | Wire any ML model into an ingest pipeline — auto-embeddings, classification, NER, PII redaction, summarization at index time |
 | **Observability** | [log-analytics](skills/opensearch-skills/observability/log-analytics/) | Query and analyze logs with PPL — error patterns, anomaly detection |
 | **Observability** | [trace-analytics](skills/opensearch-skills/observability/trace-analytics/) | Investigate distributed traces — slow spans, service maps, agent invocations |
 | **Cloud** | [aws-setup](skills/opensearch-skills/cloud/aws-setup/) | Deploy to Amazon OpenSearch Service or Serverless |
@@ -30,6 +31,7 @@ npx skills add opensearch-project/opensearch-agent-skills
 
 # Install a specific skill
 npx skills add opensearch-project/opensearch-agent-skills@opensearch-launchpad --full-depth
+npx skills add opensearch-project/opensearch-agent-skills@ml-inference-ingest --full-depth
 npx skills add opensearch-project/opensearch-agent-skills@log-analytics --full-depth
 npx skills add opensearch-project/opensearch-agent-skills@trace-analytics --full-depth
 npx skills add opensearch-project/opensearch-agent-skills@aws-setup --full-depth
@@ -94,6 +96,12 @@ skills/
       opensearch-launchpad/           # Search app builder
         SKILL.md
         *.md                          # Model guides, evaluation, strategies
+    ingestion/                        # Category: Ingestion
+      SKILL.md
+      ml-inference-ingest/            # ML-powered ingest pipelines
+        SKILL.md
+        ml_inference_ingest_guide.md
+        connector_patterns.md
     observability/                    # Category: Observability
       SKILL.md
       log-analytics/                  # Log querying & analysis

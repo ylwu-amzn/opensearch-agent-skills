@@ -36,8 +36,8 @@
     "skill": "log-analytics",
     "prompt": "Investigate errors in my application logs",
     "rule": "Must ask which cluster to connect to before doing anything else",
-    "criteria": "The response must ask the user for cluster information — specifically cluster type (local, AOS, or AOSS), endpoint URL, and authentication method — before attempting any discovery, querying, or MCP configuration. It must not assume localhost or any default endpoint.",
-    "rationale": "Phase 1 requires asking for cluster type, endpoint, and auth upfront — agent must not assume localhost"
+    "criteria": "The response must ask the user for cluster information \u2014 specifically cluster type (local, AOS, or AOSS), endpoint URL, and authentication method \u2014 before attempting any discovery, querying, or MCP configuration. It must not assume localhost or any default endpoint.",
+    "rationale": "Phase 1 requires asking for cluster type, endpoint, and auth upfront \u2014 agent must not assume localhost"
   },
   {
     "id": "log-analytics-ask-cluster-aoss",
@@ -45,15 +45,15 @@
     "prompt": "I want to analyze logs stored in my Amazon OpenSearch Serverless collection. Can you help?",
     "rule": "Must ask for the AOSS endpoint URL and authentication method, not assume a default",
     "criteria": "The response must ask for the specific AOSS endpoint URL and how the user authenticates (AWS profile or credentials). It must not assume localhost, a generic endpoint, or skip asking for auth details when the user mentions Amazon OpenSearch Serverless.",
-    "rationale": "AOSS requires a collection-specific endpoint and SigV4 auth — agent must not default to localhost"
+    "rationale": "AOSS requires a collection-specific endpoint and SigV4 auth \u2014 agent must not default to localhost"
   },
   {
     "id": "log-analytics-discovery-first",
     "skill": "log-analytics",
     "prompt": "Write me a PPL query to find all ERROR logs in my application",
-    "rule": "Must not assume field names — must mention discovering the index mapping or schema first",
+    "rule": "Must not assume field names \u2014 must mention discovering the index mapping or schema first",
     "criteria": "The response must not assume specific field names like 'level' or 'log.level'. It must mention the need to discover the index mapping or inspect the schema before writing a query, since field names vary by log source.",
-    "rationale": "Key rule: discovery first — never assume field names"
+    "rationale": "Key rule: discovery first \u2014 never assume field names"
   },
   {
     "id": "log-analytics-ppl-primary",
@@ -77,7 +77,7 @@
     "prompt": "Find all error spans in my trace data",
     "rule": "Must mention discovering trace indices before querying",
     "criteria": "The response must mention discovering or looking for trace indices (such as otel-v1-apm-span-*) before writing any query. It must not jump straight to a query without first addressing index discovery.",
-    "rationale": "Key rule: discovery first — look for otel-v1-apm-span-* indices"
+    "rationale": "Key rule: discovery first \u2014 look for otel-v1-apm-span-* indices"
   },
   {
     "id": "trace-analytics-quote-dotted-fields",
@@ -173,7 +173,7 @@
     "prompt": "Set up a VECTORSEARCH collection called embeddings-store in us-east-1 with all required policies",
     "rule": "Must create encryption policy before creating the collection",
     "criteria": "The response must create the encryption policy and network policy before creating the collection group or collection. The correct order is: encryption policy, then network policy, then collection group, then collection. It must not create the collection before its required policies exist.",
-    "rationale": "Collections require encryption and network policies to exist first — wrong order causes failures"
+    "rationale": "Collections require encryption and network policies to exist first \u2014 wrong order causes failures"
   },
   {
     "id": "aoss-provision-valid-ocu-values",
@@ -198,5 +198,29 @@
     "rule": "Must show a confirmation prompt listing resources before deleting",
     "criteria": "The response must list the resources that will be deleted and require explicit user confirmation (typing the group name) before executing any delete commands. It must not proceed with deletion without showing what will be removed and getting confirmation.",
     "rationale": "Deprovision flow requires typed confirmation of group name before destructive actions"
+  },
+  {
+    "id": "ml-inference-ingest-predict-first",
+    "skill": "ml-inference-ingest",
+    "prompt": "I want to set up an ingest pipeline that uses Bedrock Claude to extract entities from every document",
+    "rule": "Must verify the model with direct _predict before building or attaching the ingest pipeline",
+    "criteria": "The response must instruct calling /_plugins/_ml/models/<id>/_predict directly to verify the connector and model work, before creating the ingest pipeline. It must not skip straight to PUT /_ingest/pipeline.",
+    "rationale": "Phase 3 of the ml-inference-ingest workflow requires direct _predict before pipeline creation \u2014 eliminates 80% of debugging time"
+  },
+  {
+    "id": "ml-inference-ingest-simulate-before-bulk",
+    "skill": "ml-inference-ingest",
+    "prompt": "I built an ml_inference ingest pipeline and now want to bulk-load 10,000 documents",
+    "rule": "Must run /_ingest/pipeline/<name>/_simulate on a small sample before any bulk-load",
+    "criteria": "The response must instruct running _simulate on a couple of sample docs to verify the enriched _source has the expected shape, before bulk-loading real data. A misconfigured pipeline silently writes garbage into every document, so simulation is mandatory.",
+    "rationale": "Phase 4 of the ml-inference-ingest workflow requires _simulate before bulk-load to avoid corrupting real data"
+  },
+  {
+    "id": "ml-inference-ingest-aoss-nextgen-only",
+    "skill": "ml-inference-ingest",
+    "prompt": "I'm using Amazon OpenSearch Serverless and want to add an ml_inference ingest pipeline",
+    "rule": "Must confirm the collection is on AOSS NextGen architecture (not Classic) before proceeding",
+    "criteria": "The response must explicitly note that ml_inference is supported on AOSS NextGen collections only, and either confirm the collection's architecture with the user or instruct creating a new NextGen collection. Classic AOSS does not support ml_inference.",
+    "rationale": "Key Rules section of ml-inference-ingest SKILL.md states ml_inference is NextGen-only on AOSS"
   }
 ]

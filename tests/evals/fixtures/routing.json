@@ -70,5 +70,23 @@
     "prompt": "How do I configure IAM roles and SigV4 auth for my OpenSearch domain?",
     "expected_skill": "aws-setup",
     "rationale": "IAM + SigV4 are aws-setup keywords"
+  },
+  {
+    "id": "routing-ingest-01",
+    "prompt": "I want to auto-tag every product description with sentiment as it lands in OpenSearch",
+    "expected_skill": "ml-inference-ingest",
+    "rationale": "Auto-tagging at index time + sentiment is the canonical ml_inference ingest use case"
+  },
+  {
+    "id": "routing-ingest-02",
+    "prompt": "How do I redact PII from documents before they hit OpenSearch storage?",
+    "expected_skill": "ml-inference-ingest",
+    "rationale": "PII redaction at ingest time \u2014 index-time enrichment via ml_inference ingest processor"
+  },
+  {
+    "id": "routing-ingest-03",
+    "prompt": "I need to extract named entities from every news article when I index it",
+    "expected_skill": "ml-inference-ingest",
+    "rationale": "NER at index time \u2014 ml_inference ingest processor with an LLM"
   }
 ]
