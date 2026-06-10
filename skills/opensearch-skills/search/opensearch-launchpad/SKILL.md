@@ -5,9 +5,12 @@ description: >
   the user mentions search app, index setup, search architecture, semantic
   search, vector search, hybrid search, BM25, dense vector, sparse vector,
   agentic search, RAG, embeddings, KNN, PDF ingestion, document processing,
-  or any related search topic. Activate even if the user says search quality,
-  evaluation, nDCG, precision, relevance tuning, or search builder without
-  mentioning OpenSearch.
+  ml_inference search request processor, ml_inference search response
+  processor, query rewriting, multilingual query routing, LLM rerank,
+  grounded RAG synthesis, AOSS 403 Forbidden on search pipeline, AOSS error
+  masking, or any related search topic. Activate even if the user says
+  search quality, evaluation, nDCG, precision, relevance tuning, or search
+  builder without mentioning OpenSearch.
 compatibility: Requires Docker and uv. AWS deployment requires AWS credentials.
 metadata:
   author: opensearch-project
@@ -154,8 +157,11 @@ Design a search architecture. Read the relevant knowledge files:
 - [dense_vector_models.md](dense_vector_models.md)
 - [sparse_vector_models.md](sparse_vector_models.md)
 - [opensearch_semantic_search_guide.md](opensearch_semantic_search_guide.md)
-- [agentic_search_guide.md](agentic_search_guide.md)
+- [ml_inference_search_pipeline_guide.md](ml_inference_search_pipeline_guide.md) — for LLM-powered query rewriting (multilingual routing, intent detection, spell correction), per-hit LLM re-ranking, or grounded RAG answer synthesis at response time. **Prefer this over `agentic_search_guide.md` for single-shot RAG** — it's significantly simpler and works on AOSS NextGen.
+- [agentic_search_guide.md](agentic_search_guide.md) — only when the user genuinely needs multi-step reasoning, query decomposition, or tool orchestration. For straightforward "search + LLM-synthesized answer" use cases, the `ml_inference` response processor above is the right pick.
 - [document_processing_guide.md](document_processing_guide.md)
+
+**If the user wants per-document LLM enrichment at index time** (auto-tagging, NER, sentiment, summarization, PII redaction, auto-embedding with a non-trivial model), hand off to the [ingestion/ml-inference-ingest](../../ingestion/ml-inference-ingest/SKILL.md) skill before continuing this workflow. That skill returns to Phase 4 here once ingest is set up.
 
 Present the plan and wait for user approval.
 

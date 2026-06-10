@@ -1,5 +1,7 @@
 # OpenSearch Agentic Search Guide
 
+> **Looking for a simpler RAG pattern?** If the user wants single-call grounded answer synthesis on top of normal retrieval (no multi-step planning, no tool orchestration, no conversation memory), use the `ml_inference` search response processor instead — see [`ml_inference_search_pipeline_guide.md`](ml_inference_search_pipeline_guide.md) Section 3 for cross-document RAG. It's significantly simpler and works on AOSS NextGen. Agentic search (this guide) is the right pick only when you actually need multi-step reasoning, query decomposition, or tool orchestration.
+
 ---
 
 ## 1. Overview
