@@ -4,6 +4,8 @@ Copy-pasteable connector recipes for the most common `ml_inference` use cases. T
 
 > All recipes use `protocol: aws_sigv4` for Bedrock. Replace `${region}`, `${connector_role_arn}`, and credential values with your own. For SageMaker/OpenAI/self-hosted, see Section 5.
 
+> ⚠️ **Raw-string substitution.** In every text-generation recipe below, `${parameters.text}` is substituted into `request_body` as a raw string *before* the body is parsed as JSON. A field value containing a double-quote, backslash, or newline (common in real documents) breaks the JSON and the call fails — on AOSS as an opaque `403 Forbidden`. Always `_simulate` with a document that contains quotes and newlines, not just clean sample text. See [ml_inference_ingest_guide.md](ml_inference_ingest_guide.md) Section 6 gotcha 2 for mitigations. (Embedding recipes that use `pre_process_function` are unaffected — the function builds the body with proper escaping.)
+
 ---
 
 ## 1. Bedrock Titan Text Embeddings v2 (auto-embedding for kNN)

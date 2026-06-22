@@ -195,9 +195,14 @@ When the user is on AOSS, also confirm the connector role's trust policy allows 
 
 1. **Connector parameter name must match `input_map` key.** If `request_body` references `${parameters.text}`, your `input_map` must have `text` as a key. A mismatch on AOSS surfaces as opaque `403 Forbidden`; on open-source it's `parameter placeholder not filled in payload: text`.
 
-2. **`output_map` JSONPath must match the model's actual response shape.** Different model families return text at different paths:
+2. **Field values are substituted into `request_body` as raw strings — unescaped.** The `${parameters.text}` placeholder is replaced by the literal field value before the body is parsed as JSON. If a document's field contains a double-quote, backslash, or newline (very common for real reviews, articles, or PII-laden text), the interpolated `request_body` becomes invalid JSON and the call fails — on AOSS as an opaque `403 Forbidden`, on open-source as `Invalid payload`. This is the single most common real-world failure for these recipes. Mitigations:
+   - Note that moving the value into a content-block array (`"content":[{"type":"text","text":"${parameters.text}"}]` instead of `"content":"${parameters.text}"`) does **not** help — the substitution is still raw, so a quote or newline in the value breaks the JSON either way.
+   - **Rely on a `pre_process_function`** (the embedding recipes in [connector_patterns.md](connector_patterns.md) Section 7 use one) which builds the request body programmatically with proper escaping, instead of raw template substitution.
+   - **Always `_simulate` with a document that contains quotes and newlines**, not just clean sample text — clean samples hide this bug until production data hits the pipeline.
+
+3. **`output_map` JSONPath must match the model's actual response shape.** Different model families return text at different paths:
    - Bedrock Titan embeddings: `$.embedding`
-   - Bedrock Claude (Anthropic Messages API): `$.content[0].text` (or `content[0].text` in search response processors — see note below)
+   - Bedrock Claude (Anthropic Messages API): `$.content[0].text` (or `content[0].text` in search response processors — see note below). Note the asymmetry: the request may send `content` as a bare string, but the **response** `content` is always an array of content blocks, so you read `content[0].text`.
    - Bedrock Nova / Bedrock Converse API: `output.message.content[0].text`
    - Bedrock Llama (3.x and 4.x): `generation`
    - SageMaker / OpenAI / others: depends on the deployment; inspect `_predict` output first
@@ -206,13 +211,13 @@ When the user is on AOSS, also confirm the connector role's trust policy allows 
 
    **`$.` prefix differs by processor type.** In **ingest** processors, the JSONPath needs the `$.` prefix to root at the model's full inference response (e.g., `$.content[0].text`). In **search response** processors, the JSONPath roots into the model output already, so the `$.` is omitted (e.g., `content[0].text`). This is because `full_response_path` defaults differently for the two processor types. If you copy-paste from a search-response example into an ingest pipeline (or vice versa), the path will be wrong by exactly the `$.` prefix.
 
-3. **The pipeline runs synchronously per document.** A slow model (e.g., a 5s LLM call) will dominate ingest throughput. For high-volume ingestion with LLM enrichment, either (a) batch ingestion in off-peak windows, (b) use a small fast classifier (Nova Micro is purpose-built for this), or (c) run enrichment as a separate offline job and reindex.
+4. **The pipeline runs synchronously per document.** A slow model (e.g., a 5s LLM call) will dominate ingest throughput. For high-volume ingestion with LLM enrichment, either (a) batch ingestion in off-peak windows, (b) use a small fast classifier (Nova Micro is purpose-built for this), or (c) run enrichment as a separate offline job and reindex.
 
-4. **Ingest pipeline errors fail the whole bulk operation.** Set `"ignore_failure": true` per processor if a single doc's enrichment failure shouldn't poison the whole batch — but be careful: silent failures are harder to debug than loud ones.
+5. **Ingest pipeline errors fail the whole bulk operation.** Set `"ignore_failure": true` per processor if a single doc's enrichment failure shouldn't poison the whole batch — but be careful: silent failures are harder to debug than loud ones.
 
-5. **Field types in the index mapping must match what the pipeline writes.** If `output_map` writes a string but the index mapping says `keyword`, fine. If the mapping says `knn_vector` but the model returns a string, you'll get a mapper exception per doc. Get the mapping right before bulk-loading.
+6. **Field types in the index mapping must match what the pipeline writes.** If `output_map` writes a string but the index mapping says `keyword`, fine. If the mapping says `knn_vector` but the model returns a string, you'll get a mapper exception per doc. Get the mapping right before bulk-loading.
 
-6. **The pipeline can read fields that earlier processors wrote.** In a chained pipeline, the second processor's `input_map` can reference a field that the first processor's `output_map` produced. This enables conditional enrichment (e.g., "first detect language, then route to a language-specific model") — though for simple cases, one model with multilingual support is usually cleaner.
+7. **The pipeline can read fields that earlier processors wrote.** In a chained pipeline, the second processor's `input_map` can reference a field that the first processor's `output_map` produced. This enables conditional enrichment (e.g., "first detect language, then route to a language-specific model") — though for simple cases, one model with multilingual support is usually cleaner.
 
 ---
 
