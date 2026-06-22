@@ -116,7 +116,7 @@ The user wants the pipeline to **call an LLM after retrieval** with the hits as 
 
 | Setting | Behavior | Use it for |
 |---|---|---|
-| `one_to_one: false` (default) | One model call sees ALL hits. The processor aggregates each hit's `input_map` field into a `List<String>`. Use `${parameters.X.toString()}` to embed the list as a single string slot, OR use `${parameters.X}` (no quotes around it in the connector body) when the model's API expects a JSON array directly. Output is written either as a single value replicated across hits (string output) or fanned out per hit using `results[*]` indexing (array-aligned output). | **Cross-document synthesis** (RAG, summarization across results) AND **batch per-hit scoring** (rerank, where the model returns N scores in one call) |
+| `one_to_one: false` (default) | One model call sees ALL hits. The processor aggregates each hit's `input_map` field into a `List<String>`. Use `${parameters.X.toString()}` to embed the list as a single string slot, OR use `${parameters.X}` (no quotes around it in the connector body) when the model's API expects a JSON array directly. Output is written either as a single value replicated across hits (string output) or fanned out per hit using `results[*]` indexing (array-aligned output). | **Cross-document synthesis** (RAG, summarization across results) AND **batch per-hit scoring** (the array fan-out pattern; see the rerank section for an AOSS verification caveat) |
 | `one_to_one: true` | One model call per hit. Inputs are scalar (single hit's fields). Output is per-hit. | **Per-hit enrichment when the model can't batch** — e.g., a custom classifier whose API only accepts one document at a time |
 
 ### Cross-document RAG (the most common use case)
@@ -189,65 +189,26 @@ Every hit's `_source` carries the **same** `rag_answer` (one model call, output 
 
 4. **`one_to_one: true` is NOT real cross-doc RAG, and usually NOT the right rerank shape either.** Each `one_to_one: true` call sees only one document, so RAG synthesis can't compare evidence and most calls return "I do not know"; rerank with `one_to_one: true` makes one API call per hit (50× the latency and cost vs. a batched rerank API). Default to `one_to_one: false` for both synthesis (string output replicated to every hit) and batch scoring (array output fanned out via `results[*]`). Reach for `one_to_one: true` only when the underlying model API genuinely cannot batch.
 
-### Per-hit re-ranking (Cohere Rerank — `one_to_one: false` with batch fan-out)
+### Re-ranking with the `rerank` response processor
 
-Use this when the model produces a relevance score per (query, document) pair, and you want to reorder hits by that score. Cohere Rerank is the canonical hosted rerank endpoint and accepts the full document list in one call. The `rerank` response processor (separate from `ml_inference`) consumes the per-hit score and reorders results.
+The `rerank` response processor (a distinct processor, not `ml_inference`) reorders hits and rewrites their `_score`. It has two rerank types:
 
-This pattern uses **`one_to_one: false`** and aggregates all hits' fields into a single batched call — same API-call shape as cross-doc RAG, but the model returns a per-hit array that gets fanned back out using the `results[*]` index pattern in `output_map`. This matches the upstream [Cohere Rerank tutorial](https://github.com/opensearch-project/ml-commons/blob/main/docs/tutorials/ml_inference/rerank/ml_Inference_with_Cohere_Rerank_model.md).
+- **`by_field`** — reorders by a numeric field already present on each hit. No model call. **Verified working on AOSS NextGen.**
+- **`ml_opensearch`** — calls a cross-encoder model to score each (query, document) pair. Needs a registered cross-encoder. **Documented upstream; not verified end-to-end on AOSS NextGen in our testing (see caveat below).**
 
-**Connector:**
+#### `by_field` rerank — verified on AOSS NextGen
 
-```http
-POST /_plugins/_ml/connectors/_create
-{
-  "name": "Cohere Rerank",
-  "version": "1.0",
-  "protocol": "http",
-  "credential": { "cohere_key": "<your-cohere-api-key>" },
-  "parameters": {
-    "model": "rerank-english-v3.0",
-    "return_documents": true
-  },
-  "actions": [{
-    "action_type": "predict",
-    "method": "POST",
-    "url": "https://api.cohere.ai/v1/rerank",
-    "headers": { "Authorization": "Bearer ${credential.cohere_key}" },
-    "request_body": "{ \"documents\": ${parameters.documents}, \"query\": \"${parameters.query}\", \"model\": \"${parameters.model}\", \"top_n\": ${parameters.top_n}, \"return_documents\": ${parameters.return_documents} }"
-  }]
-}
-```
-
-`${parameters.documents}` substitutes outside any quotes — Cohere's API expects a JSON array there directly. When the response processor aggregates hits into a `List<String>`, gson serializes it as `["doc1","doc2",...]` which is valid JSON in this position.
-
-**Pipeline:**
+Use this when each hit already carries a relevance score — either a score you computed at ingest time, or one produced by an upstream `ml_inference` response processor that wrote a per-hit field. The `rerank` processor just sorts by that field.
 
 ```http
-PUT /_search/pipeline/rerank-pipeline
+PUT /_search/pipeline/rerank-byfield
 {
   "response_processors": [
     {
-      "ml_inference": {
-        "tag": "cohere_rerank",
-        "model_id": "<cohere_rerank_model>",
-        "function_name": "remote",
-        "one_to_one": false,
-        "input_map": [{
-          "documents": "fact_description",
-          "query":     "_request.ext.query_context.query_text",
-          "top_n":     "_request.ext.query_context.top_n"
-        }],
-        "output_map": [{
-          "relevance_score": "results[*].relevance_score"
-        }]
-      }
-    },
-    {
       "rerank": {
         "by_field": {
-          "target_field": "relevance_score",
-          "remove_target_field": false,
-          "keep_previous_score": false
+          "target_field": "rerank_score",
+          "keep_previous_score": true
         }
       }
     }
@@ -255,31 +216,31 @@ PUT /_search/pipeline/rerank-pipeline
 }
 ```
 
-Three things to notice:
-
-- **`one_to_one: false`** — the processor batches all hits into a single Cohere call. With 50 hits, you make 1 API call (not 50).
-- **`results[*].relevance_score`** — the `[*]` wildcard tells the processor "the model returns an aligned array; fan element `i` back out to hit `i`." Each hit ends up with its own `_source.relevance_score`.
-- **`_request.ext.query_context.query_text`** — `_request.*` (no `$.` prefix in this style; both forms work) reads from the original search request body, including the `ext` block. This is how you pass the rerank query.
-
-**Searching:**
-
 ```http
-POST /<index>/_search?search_pipeline=rerank-pipeline
+POST /<index>/_search?search_pipeline=rerank-byfield
 {
   "size": 5,
-  "query": { "match_all": {} },
-  "ext": {
-    "query_context": {
-      "query_text": "Where do people go to see a show?",
-      "top_n": "10"
-    }
-  }
+  "query": { "match": { "title": "keyword" } }
 }
 ```
 
-The `query` does the broad retrieval (here `match_all`; in practice usually a `match` or `neural` query for the candidate pool). The response processor reranks each hit against the user's `query_text` and rewrites the order via the `rerank` processor. Reranked top-N is what the user sees.
+Hits come back ordered by `rerank_score` (descending). With `keep_previous_score: true`, each hit also carries a `previous_score` field holding the original BM25/kNN score — useful for debugging. Verified: a corpus where BM25 ranked docs `[0.18, 0.11, 0.09]` returned, after `by_field` rerank, in `rerank_score` order `[0.9, 0.5, 0.1]` with `previous_score` preserved.
 
-**Note on AOSS NextGen:** the `rerank` response processor is in the curated allowlist (works), distinct from `collapse` which is not (returns `400`). See Section 4 for the full allowlist.
+**Pairing with `ml_inference`:** to produce the score field that `by_field` sorts on, run an `ml_inference` response processor first (writing e.g. `relevance_score` per hit via `one_to_one: false` + `results[*]` fan-out), then `by_field` to reorder by it. The `ml_inference` half of that chain is subject to the connector/model caveats in this guide — verify the scoring processor produces the field (`verbose_pipeline=true`) before relying on the chain.
+
+#### `ml_opensearch` rerank (cross-encoder) — verify before relying on it
+
+The `ml_opensearch` rerank type calls a cross-encoder model registered in OpenSearch. The pipeline definition is **accepted** on AOSS NextGen, but we could **not** confirm an end-to-end remote cross-encoder rerank (e.g. Amazon Bedrock Rerank or Cohere Rerank via connector) on AOSS NextGen: the Bedrock Rerank connector returned an opaque `Forbidden` at search time, with the rerank request template's `${parameters.*}` placeholders arriving unsubstituted at the model. We did not isolate the root cause. Local on-node cross-encoder upload is also blocked on AOSS (`403` on model register).
+
+If you need cross-encoder rerank on AOSS NextGen:
+1. Build and register the cross-encoder connector/model.
+2. Test it with `_predict` (TextSimilarity input) **before** wiring the pipeline.
+3. Create the `ml_opensearch` rerank pipeline and run a search with `verbose_pipeline=true`.
+4. Confirm the `rerank` processor's `status` is `success` — if it reports `Forbidden`, the underlying model call failed (AOSS masks the real 4xx; see the debug chain below).
+
+Upstream reference for the full pattern: [Cohere Rerank tutorial](https://github.com/opensearch-project/ml-commons/blob/main/docs/tutorials/ml_inference/rerank/ml_Inference_with_Cohere_Rerank_model.md) and the [rerank processor docs](https://docs.opensearch.org/latest/search-plugins/search-pipelines/rerank-processor/).
+
+**Note on AOSS NextGen:** the `rerank` response processor type is in the curated allowlist (pipeline creation succeeds and the processor executes), distinct from `collapse` which is not (returns `400`). See Section 4 for the full allowlist.
 
 ### How to debug an opaque "Forbidden" on AOSS
 
@@ -373,7 +334,8 @@ When a user asks for query-time or response-time LLM enrichment:
 
 2. **Single output for the whole request, or per-hit?**
    - Whole request (RAG synthesis, response-level summary) → `one_to_one: false` + `$._request.*` to read the question. Output is replicated across hits.
-   - Per hit, model can batch (most LLM rerank APIs, Cohere Rerank) → `one_to_one: false` + `results[*]` in `output_map` to fan out the array. One API call, per-hit scores.
+   - Re-ranking hits → use the `rerank` response processor. `by_field` (sort by an existing numeric field) is verified on AOSS NextGen; cross-encoder (`ml_opensearch`) is accepted but unverified end-to-end on AOSS — see the re-ranking section.
+   - Per-hit scoring via an LLM that batches → `one_to_one: false` + `results[*]` in `output_map` to fan out the array (one API call). Subject to the same connector/model caveats — verify with `verbose_pipeline=true`.
    - Per hit, model can't batch (rare; custom classifier with single-doc API) → `one_to_one: true`. N API calls.
 
 3. **Does the model output drive the entire query, or just a slot?**
